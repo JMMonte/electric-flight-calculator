@@ -105,20 +105,6 @@ with tab1:
     percentage_difference_range = ((R_elec_km / b737_max_range) - 1) * 100  # percentage difference
     percentage_difference_heat_mgmt_mass = ((heat_mgmt_mass / b737_max_engine_mass) - 1) * 100  # percentage difference
 
-    # Display main numbers as metrics
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Calculated e737 Range (km)", f"{R_elec_km:.2f}", f"{percentage_difference_range:.2f}% of 737-800 MAX")
-    col1.metric("Heat Management Mass (kg)", f"{heat_mgmt_mass:.2f}", f"{percentage_difference_heat_mgmt_mass:.2f}% of 737-800 MAX engine mass", delta_color="inverse")
-    col2.metric("Target eTurbine Thrust Required (kN)", f"{subreq1_motor_thrust:.2f}")
-    col2.metric("eTurbine Power Required (kW)", f"{motor_power / 1000:.2f}")
-    col2.metric("Motor Heat (kW)", f"{motor_heat / 1000:.2f}")
-    col3.metric("eTurbofan Mass (kg)", f"{total_motor_mass:.2f}", f"{(total_motor_mass / b737_max_engine_mass - 1) * 100:.2f}% of 737-800 MAX engine mass")
-    col3.metric("e737 Mass (kg)", f"{total_mass_with_heat_mgmt:.2f}", f"{(total_mass_with_heat_mgmt / b737_max_mass - 1) * 100:.2f}% of 737-800 MAX")
-
-    # show how many times we need to improve the battery specific energy to reach the target range and the motor power required comparing with current technology
-    col1.metric("New Battery Specific Energy (Wh/kg)", f"{(battery_specific_energy_J_kg/3600):.2f}", f"{battery_multiplier:.2f} times current technology")
-    col1.metric("Motor Power Improvement over current tech (kW)", f"{(motor_power / 1000):.2f}", f"{((motor_power / 1000)/120):.2f} times current technology")
-
     # calculate range for current battery energy density
     R_elec_m_current = (battery_specific_energy_J_kg / battery_multiplier / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
     R_elec_km_current = R_elec_m_current / 1000  # Convert to km
@@ -138,6 +124,28 @@ with tab1:
     # calculate range for each value in the grid
     R_elec_m_grid = (battery_specific_energies_grid * 3600 * battery_multiplier / gravitational_constant) * lift_to_drag_ratio * (battery_masses_grid / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
     R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
+
+    # make a plotly contour plot that shows how the motor and propulsive efficiency affect range
+    # generate a grid of values for motor and propulsive efficiency
+    motor_efficiencies = np.linspace(0, 1.0, 100)
+    propulsive_efficiencies = np.linspace(0, 1.0, 100)
+    motor_efficiencies_grid, propulsive_efficiencies_grid = np.meshgrid(motor_efficiencies, propulsive_efficiencies)
+
+
+    # Display main numbers as metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Calculated e737 Range (km)", f"{R_elec_km:.2f}", f"{percentage_difference_range:.2f}% of 737-800 MAX")
+    col1.metric("Heat Management Mass (kg)", f"{heat_mgmt_mass:.2f}", f"{percentage_difference_heat_mgmt_mass:.2f}% of 737-800 MAX engine mass", delta_color="inverse")
+    col2.metric("Target eTurbine Thrust Required (kN)", f"{subreq1_motor_thrust:.2f}")
+    col2.metric("eTurbine Power Required (kW)", f"{motor_power / 1000:.2f}")
+    col2.metric("Motor Heat (kW)", f"{motor_heat / 1000:.2f}")
+    col3.metric("eTurbofan Mass (kg)", f"{total_motor_mass:.2f}", f"{(total_motor_mass / b737_max_engine_mass - 1) * 100:.2f}% of 737-800 MAX engine mass")
+    col3.metric("e737 Mass (kg)", f"{total_mass_with_heat_mgmt:.2f}", f"{(total_mass_with_heat_mgmt / b737_max_mass - 1) * 100:.2f}% of 737-800 MAX")
+
+    # show how many times we need to improve the battery specific energy to reach the target range and the motor power required comparing with current technology
+    col1.metric("New Battery Specific Energy (Wh/kg)", f"{(battery_specific_energy_J_kg/3600):.2f}", f"{battery_multiplier:.2f} times current technology")
+    col1.metric("Motor Power Improvement over current tech (kW)", f"{(motor_power / 1000):.2f}", f"{((motor_power / 1000)/120):.2f} times current technology")
+
 
     # create a plotly figure with two subplots side by side
     fig2 = make_subplots(rows=1, cols=1)
@@ -224,15 +232,6 @@ with tab1:
 
     # display the plotly figure
     st.plotly_chart(fig2, use_container_width=True)
-
-    # make a plotly contour plot that shows how the motor and propulsive efficiency affect range
-    # generate a grid of values for motor and propulsive efficiency
-    motor_efficiencies = np.linspace(0, 1.0, 100)
-    propulsive_efficiencies = np.linspace(0, 1.0, 100)
-    motor_efficiencies_grid, propulsive_efficiencies_grid = np.meshgrid(motor_efficiencies, propulsive_efficiencies)
-    # calculate range for each value in the grid
-    R_elec_m_grid = (battery_specific_energy_J_kg / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * motor_efficiencies_grid * propulsive_efficiencies_grid
-    R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
 
     # create a plotly figure with two subplots side by side (one for range vs motor efficiency vs propulsive efficiency and one for range vs inverter efficiency vs propulsive efficienc)
     fig3 = make_subplots(rows=1, cols=2, subplot_titles=("Motor Efficiency vs Propulsive Efficiency", "Inverter Efficiency vs Propulsive Efficiency"))
