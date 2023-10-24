@@ -54,16 +54,16 @@ with tab1:
     st.header("Control Points")
     col1, col2, col3 = st.columns(3)
     with col1:
-        num_engines = st.number_input('Number of Engines (Control Point)', min_value=1, max_value=8, value=2)
+        num_engines = st.number_input('Number of Engines (Control Point)', min_value=1, max_value=20, value=2)
         lift_to_drag_ratio = st.slider('Lift-to-Drag Ratio (Control Point)', min_value=5.0, max_value=25.0, value=17.0)
     with col2:
         battery_mass_kg = st.number_input('Battery Mass (kg, Control Point)', min_value=1000, max_value=50000, value=20000)
         battery_specific_energy_Wh_kg = st.number_input('Battery Specific Energy (Wh/kg, Control Point)', min_value=100, max_value=15500, value=711)
-        battery_multiplier = st.slider('Battery Energy density Multiplier (Control Point)', min_value=0.5, max_value=200.0, value=40.0)
+        battery_multiplier = st.slider('Battery Energy density Multiplier (Control Point)', min_value=0.5, max_value=200.0, value=9.0)
     with col3:
         eta_i = st.slider('Inverter Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.98)
         eta_m = st.slider('Motor Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.95, key='eta_m')
-        eta_p = st.slider('Propulsive Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.7, key='eta_p')
+        eta_p = st.slider('Propulsive Efficiency (Control Point)', min_value=0.3, max_value=1.0, value=0.5, key='eta_p')
 
     st.markdown("---")
 
@@ -75,8 +75,9 @@ with tab1:
     b737_fuel_mass = 26000  # kg
     b737_max_engine_mass = 2780  # kg
     jet_fuel_density = 0.804  # kg/L
-    jet_fuel_energy_density = 43.15  # MJ/kg
-    b737_turbine_power = b737_fuel_mass * jet_fuel_energy_density * req1_speed / b737_max_range  # kW
+    jet_fuel_energy_density_Wh_kg = 12000  # Wh/kg
+    jet_fuel_energy_density_MJ_kg = jet_fuel_energy_density_Wh_kg / 3.6  # MJ/kg
+    b737_turbine_power = b737_fuel_mass * jet_fuel_energy_density_MJ_kg * req1_speed / b737_max_range  # kW
 
     # Convert cruising speed to m/s
     cruising_speed_m_s = (req1_speed * 1000) / 3600
@@ -88,10 +89,10 @@ with tab1:
     # Calculate heat management mass
     # split thrust by number of engines
     subreq1_motor_thrust = subreq1_motor_thrust / (num_engines)  # in N
-    motor_power = subreq1_motor_thrust * cruising_speed_m_s * 1000  # in W
+    motor_power = subreq1_motor_thrust * cruising_speed_m_s * 1000 / eta_p  # in W
     motor_heat = (1 - eta_m) * subreq1_motor_thrust * req1_speed * (1000/3600) * 1000  # in W
     heat_mgmt_mass = motor_heat / (heat_dissipation_capacity * 1000)  # in kg
-    total_motor_mass = subreq2_motor_mass + heat_mgmt_mass
+    total_motor_mass = (subreq2_motor_mass + heat_mgmt_mass)/max(1, num_engines-1)  # in kg
 
     # Update total eTurbofan mass based on heat management mass
     total_mass_with_heat_mgmt = b737_max_engine_mass * num_engines + heat_mgmt_mass + battery_mass_kg + b737_dry_mass + req3_payload
@@ -115,15 +116,25 @@ with tab1:
     col3.metric("e737 Mass (kg)", f"{total_mass_with_heat_mgmt:.2f}", f"{(total_mass_with_heat_mgmt / b737_max_mass - 1) * 100:.2f}% of 737-800 MAX")
 
     # show how many times we need to improve the battery specific energy to reach the target range and the motor power required comparing with current technology
-    col1.metric("Battery Specific Energy Improvement (Wh/kg)", f"{(battery_specific_energy_J_kg/3600):.2f}", f"{battery_multiplier:.2f} times current technology")
+    col1.metric("New Battery Specific Energy (Wh/kg)", f"{(battery_specific_energy_J_kg/3600):.2f}", f"{battery_multiplier:.2f} times current technology")
     col1.metric("Motor Power Improvement over current tech (kW)", f"{(motor_power / 1000):.2f}", f"{((motor_power / 1000)/120):.2f} times current technology")
 
+    # calculate range for current battery energy density
+    R_elec_m_current = (battery_specific_energy_J_kg / battery_multiplier / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
+    R_elec_km_current = R_elec_m_current / 1000  # Convert to km
 
     # make a plotly figure that shows how range changes with values for battery mass and battery specific energy
     # generate a grid of values for battery mass and battery specific energy
-    battery_masses = np.linspace(1000, 50000, 100)
-    battery_specific_energies = np.linspace(100, 500, 100)
+    battery_mass_start = 1000
+    battery_mass_end = 50000
+    battery_masses = np.linspace(battery_mass_start, battery_mass_end, 100)
+    
+    # make generate a max specific energy value 10% higher than the design specific energy OR 10% higher than the B737-800 MAX fuel energy density, depending on which is bigger
+    max_battery_specific_energy = max(battery_specific_energy_J_kg/3600 * 1.1, jet_fuel_energy_density_Wh_kg * 1.1)
+
+    battery_specific_energies = np.linspace(0, max_battery_specific_energy, 100)
     battery_masses_grid, battery_specific_energies_grid = np.meshgrid(battery_masses, battery_specific_energies)
+    
     # calculate range for each value in the grid
     R_elec_m_grid = (battery_specific_energies_grid * 3600 * battery_multiplier / gravitational_constant) * lift_to_drag_ratio * (battery_masses_grid / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
     R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
@@ -134,10 +145,21 @@ with tab1:
     # add a contour plot for range vs battery mass to the first subplot
     fig2.add_trace(go.Contour(x=battery_masses, y=battery_specific_energies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=1)
 
+    # add a line for current battery specific energy
+    fig2.add_trace(go.Scatter(
+                                x=[battery_mass_kg],
+                                y=[battery_specific_energy_J_kg/3600],
+                                name='Current',
+                                hovertext=f'Range: {R_elec_km_current:.2f} km',
+                                mode='markers',
+                                marker=dict(color='red',size=10)),
+                                row=1,
+                                col=1
+                                )
     # add a scatter plot for the control point to both subplots
     fig2.add_trace(go.Scatter(
                                 x=[battery_mass_kg],
-                                y=[battery_specific_energy_Wh_kg],
+                                y=[battery_specific_energy_J_kg/3600],
                                 name='Design',
                                 hovertext=f'Range: {R_elec_km:.2f} km',
                                 mode='markers',
@@ -145,6 +167,43 @@ with tab1:
                                 row=1,
                                 col=1
                                 )
+
+    # add a horizontal line for the current battery mass and add an annotation
+    fig2.add_shape(
+        go.layout.Shape(
+            type="line",
+            x0=battery_mass_start,
+            x1=battery_mass_end,
+            y0=battery_specific_energy_Wh_kg,
+            y1=battery_specific_energy_Wh_kg,
+            line=dict(color="red", width=1, dash="dot"),
+        )
+    )
+    fig2.add_annotation(
+        x= battery_mass_end/1.5,
+        y=battery_specific_energy_Wh_kg,
+        text=f"Current Battery Specific Energy: {battery_specific_energy_Wh_kg:.2f} Wh/kg",
+        showarrow=False,
+        font=dict(size=14, color="red"),
+    )
+    # add horizontal line for Boeing 737-800 MAX range and use jet fuel energy density to calculate the fuel mass and "battery specific energy"
+    fig2.add_shape(
+        go.layout.Shape(
+            type="line",
+            x0=battery_mass_start,
+            x1=battery_mass_end,
+            y0=jet_fuel_energy_density_Wh_kg ,
+            y1=jet_fuel_energy_density_Wh_kg,
+            line=dict(color="white", width=1, dash="dot"),
+        )
+    )
+    fig2.add_annotation(
+        x= battery_mass_end/1.5,
+        y=jet_fuel_energy_density_Wh_kg,
+        text=f"Jet Fuel Energy density: {jet_fuel_energy_density_Wh_kg:.2f} Wh/kg",
+        showarrow=False,
+        font=dict(size=14, color="white"),
+    )
 
     # update the layout
     fig2.update_layout(
@@ -168,8 +227,8 @@ with tab1:
 
     # make a plotly contour plot that shows how the motor and propulsive efficiency affect range
     # generate a grid of values for motor and propulsive efficiency
-    motor_efficiencies = np.linspace(0.5, 1.0, 100)
-    propulsive_efficiencies = np.linspace(0.5, 1.0, 100)
+    motor_efficiencies = np.linspace(0, 1.0, 100)
+    propulsive_efficiencies = np.linspace(0, 1.0, 100)
     motor_efficiencies_grid, propulsive_efficiencies_grid = np.meshgrid(motor_efficiencies, propulsive_efficiencies)
     # calculate range for each value in the grid
     R_elec_m_grid = (battery_specific_energy_J_kg / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * motor_efficiencies_grid * propulsive_efficiencies_grid
