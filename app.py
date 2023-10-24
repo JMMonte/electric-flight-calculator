@@ -8,12 +8,227 @@ from plotly.subplots import make_subplots
 import math
 
 # streamlit settings
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Sustainable aircraft designer", page_icon="✈️")
 st.title("Sustainable aircraft designer")
 # Streamlit sidebar and common constants
 # add a tab system
-tab1, tab2 = st.tabs(["Plot", "Electric Commercial Flight"])
+tab1, tab2 = st.tabs(["Electric Commercial Flight", "Comparison"])
+
 with tab1:
+    # Title and Tabs
+    with st.expander("About"):
+        st.write(
+            '''
+            This section of the app is dedicated to the design of an electric commercial flight.
+            The design is based on the Boeing 737-800 MAX, which is a short to medium range commercial aircraft.
+            The design is based on the following assumptions:
+            - The aircraft is powered by a futuristic electric turbofan engine
+            - The aircraft is powered by a battery (albeit a futuristic one)
+            '''
+        )
+
+    # Constants
+    gravitational_constant = 9.81  # m/s^2
+
+    # System Level Requirements
+    st.header("System Level Requirements")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        req1_speed = st.number_input("Requirement 1: Target Cruising Speed (km/h)", min_value=200, max_value=1000, value=840)
+    with col2:
+        req2_range = st.number_input("Requirement 2: Target Maximum Range (km)", min_value=100, max_value=8000, value=5765)
+    with col3:
+        req3_payload = st.number_input("Requirement 3: Target Payload (kg)", min_value=100, max_value=100000, value=20000)
+
+    # Subsystem Level Requirements - Motor Subsystem
+    st.header("eTurbine Subsystem")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        subreq1_motor_thrust = st.number_input("Sub-Requirement 1: Target eTurbofan thrust (kN)", min_value=10.0, max_value=350.0, value=147.58)
+    with col2:
+        subreq2_motor_mass = st.number_input("Sub-Requirement 2: Max Motor Mass (kg)", min_value=10, max_value=10000, value=2780)
+    with col3:
+        heat_dissipation_capacity = st.number_input('Heat Dissipation Capacity (KW/kg, Control Point)', min_value=0.1, max_value=20.0, value=10.0)
+
+    # Control Points (Input Widgets)
+    st.header("Control Points")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        num_engines = st.number_input('Number of Engines (Control Point)', min_value=1, max_value=8, value=2)
+        lift_to_drag_ratio = st.slider('Lift-to-Drag Ratio (Control Point)', min_value=5.0, max_value=25.0, value=17.0)
+    with col2:
+        battery_mass_kg = st.number_input('Battery Mass (kg, Control Point)', min_value=1000, max_value=50000, value=20000)
+        battery_specific_energy_Wh_kg = st.number_input('Battery Specific Energy (Wh/kg, Control Point)', min_value=100, max_value=15500, value=711)
+        battery_multiplier = st.slider('Battery Energy density Multiplier (Control Point)', min_value=0.5, max_value=200.0, value=40.0)
+    with col3:
+        eta_i = st.slider('Inverter Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.98)
+        eta_m = st.slider('Motor Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.95, key='eta_m')
+        eta_p = st.slider('Propulsive Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.7, key='eta_p')
+
+    st.markdown("---")
+
+    # Boeing 737-800 MAX Constants
+    b737_max_range = 5765  # km
+    b737_max_thrust = 120000  # N
+    b737_max_mass = 79015
+    b737_dry_mass = 41500  # kg
+    b737_fuel_mass = 26000  # kg
+    b737_max_engine_mass = 2780  # kg
+    jet_fuel_density = 0.804  # kg/L
+    jet_fuel_energy_density = 43.15  # MJ/kg
+    b737_turbine_power = b737_fuel_mass * jet_fuel_energy_density * req1_speed / b737_max_range  # kW
+
+    # Convert cruising speed to m/s
+    cruising_speed_m_s = (req1_speed * 1000) / 3600
+
+    # Calculate range using the modified Breguet Range Equation for electric aircraft
+    # Convert units
+    battery_specific_energy_J_kg = battery_specific_energy_Wh_kg * 3600 * battery_multiplier # Convert Wh/kg to J/kg
+
+    # Calculate heat management mass
+    # split thrust by number of engines
+    subreq1_motor_thrust = subreq1_motor_thrust / (num_engines)  # in N
+    motor_power = subreq1_motor_thrust * cruising_speed_m_s * 1000  # in W
+    motor_heat = (1 - eta_m) * subreq1_motor_thrust * req1_speed * (1000/3600) * 1000  # in W
+    heat_mgmt_mass = motor_heat / (heat_dissipation_capacity * 1000)  # in kg
+    total_motor_mass = subreq2_motor_mass + heat_mgmt_mass
+
+    # Update total eTurbofan mass based on heat management mass
+    total_mass_with_heat_mgmt = b737_max_engine_mass * num_engines + heat_mgmt_mass + battery_mass_kg + b737_dry_mass + req3_payload
+
+    # Calculate range using the modified Breguet Range Equation for electric aircraft
+    R_elec_m = (battery_specific_energy_J_kg / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
+    R_elec_km = R_elec_m / 1000  # Convert to km
+
+    # Compare with Boeing 737-800 MAX
+    percentage_difference_range = ((R_elec_km / b737_max_range) - 1) * 100  # percentage difference
+    percentage_difference_heat_mgmt_mass = ((heat_mgmt_mass / b737_max_engine_mass) - 1) * 100  # percentage difference
+
+    # Display main numbers as metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Calculated e737 Range (km)", f"{R_elec_km:.2f}", f"{percentage_difference_range:.2f}% of 737-800 MAX")
+    col1.metric("Heat Management Mass (kg)", f"{heat_mgmt_mass:.2f}", f"{percentage_difference_heat_mgmt_mass:.2f}% of 737-800 MAX engine mass", delta_color="inverse")
+    col2.metric("Target eTurbine Thrust Required (kN)", f"{subreq1_motor_thrust:.2f}")
+    col2.metric("eTurbine Power Required (kW)", f"{motor_power / 1000:.2f}")
+    col2.metric("Motor Heat (kW)", f"{motor_heat / 1000:.2f}")
+    col3.metric("eTurbofan Mass (kg)", f"{total_motor_mass:.2f}", f"{(total_motor_mass / b737_max_engine_mass - 1) * 100:.2f}% of 737-800 MAX engine mass")
+    col3.metric("e737 Mass (kg)", f"{total_mass_with_heat_mgmt:.2f}", f"{(total_mass_with_heat_mgmt / b737_max_mass - 1) * 100:.2f}% of 737-800 MAX")
+
+    # show how many times we need to improve the battery specific energy to reach the target range and the motor power required comparing with current technology
+    col1.metric("Battery Specific Energy Improvement (Wh/kg)", f"{(battery_specific_energy_J_kg/3600):.2f}", f"{battery_multiplier:.2f} times current technology")
+    col1.metric("Motor Power Improvement over current tech (kW)", f"{(motor_power / 1000):.2f}", f"{((motor_power / 1000)/120):.2f} times current technology")
+
+
+    # make a plotly figure that shows how range changes with values for battery mass and battery specific energy
+    # generate a grid of values for battery mass and battery specific energy
+    battery_masses = np.linspace(1000, 50000, 100)
+    battery_specific_energies = np.linspace(100, 500, 100)
+    battery_masses_grid, battery_specific_energies_grid = np.meshgrid(battery_masses, battery_specific_energies)
+    # calculate range for each value in the grid
+    R_elec_m_grid = (battery_specific_energies_grid * 3600 * battery_multiplier / gravitational_constant) * lift_to_drag_ratio * (battery_masses_grid / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
+    R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
+
+    # create a plotly figure with two subplots side by side
+    fig2 = make_subplots(rows=1, cols=1)
+
+    # add a contour plot for range vs battery mass to the first subplot
+    fig2.add_trace(go.Contour(x=battery_masses, y=battery_specific_energies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=1)
+
+    # add a scatter plot for the control point to both subplots
+    fig2.add_trace(go.Scatter(
+                                x=[battery_mass_kg],
+                                y=[battery_specific_energy_Wh_kg],
+                                name='Design',
+                                hovertext=f'Range: {R_elec_km:.2f} km',
+                                mode='markers',
+                                marker=dict(color='white',size=10)),
+                                row=1,
+                                col=1
+                                )
+
+    # update the layout
+    fig2.update_layout(
+        title="Range vs Battery Mass and Battery Specific Energy",
+        xaxis_title="Battery Mass (kg)",
+        yaxis_title="Battery Specific Energy (Wh/kg)",
+        height=500,
+        width=1000,
+        # make legend horizontal
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1),
+        # make hover value lable say Battery Specific Energy (x), Battery Mass (y), and Range (z)
+        hoverlabel=dict(
+            font_size=11,
+            font_family="Rockwell"
+        ),
+        hovermode="closest"
+    )
+
+    # display the plotly figure
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # make a plotly contour plot that shows how the motor and propulsive efficiency affect range
+    # generate a grid of values for motor and propulsive efficiency
+    motor_efficiencies = np.linspace(0.5, 1.0, 100)
+    propulsive_efficiencies = np.linspace(0.5, 1.0, 100)
+    motor_efficiencies_grid, propulsive_efficiencies_grid = np.meshgrid(motor_efficiencies, propulsive_efficiencies)
+    # calculate range for each value in the grid
+    R_elec_m_grid = (battery_specific_energy_J_kg / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * motor_efficiencies_grid * propulsive_efficiencies_grid
+    R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
+
+    # create a plotly figure with two subplots side by side (one for range vs motor efficiency vs propulsive efficiency and one for range vs inverter efficiency vs propulsive efficienc)
+    fig3 = make_subplots(rows=1, cols=2, subplot_titles=("Motor Efficiency vs Propulsive Efficiency", "Inverter Efficiency vs Propulsive Efficiency"))
+
+    # add a contour plot for range vs motor and propulsive efficiency to the first subplot
+    fig3.add_trace(go.Contour(x=motor_efficiencies, y=propulsive_efficiencies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=1)
+
+    # add a scatter plot for the control point to both subplots
+    fig3.add_trace(go.Scatter(
+                                x=[eta_m],
+                                y=[eta_p],
+                                name='Design',
+                                hovertext=f'Range: {R_elec_km:.2f} km',
+                                mode='markers',
+                                marker=dict(color='white',size=10)),
+                                row=1,
+                                col=1
+                                )
+    
+    # add a contour plot for range vs inverter and propulsive efficiency to the second subplot
+    fig3.add_trace(go.Contour(x=motor_efficiencies, y=propulsive_efficiencies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=2)
+
+    # add a scatter plot for the control point to both subplots
+    fig3.add_trace(go.Scatter(
+                                x=[eta_i],
+                                y=[eta_p],
+                                name='Design',
+                                hovertext=f'Range: {R_elec_km:.2f} km',
+                                mode='markers',
+                                marker=dict(color='white',size=10)),
+                                row=1,
+                                col=2
+                                )
+    
+    # update the layout
+    fig3.update_layout(
+        title="Range vs Motor and Propulsive Efficiency",
+        xaxis_title="Motor Efficiency",
+        yaxis_title="Propulsive Efficiency",
+        height=500,
+        width=1000,
+        # make legend horizontal
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1),
+        # make hover value lable say Motor Efficiency (x), Propulsive Efficiency (y), and Range (z)
+        hoverlabel=dict(
+            font_size=11,
+            font_family="Rockwell"
+        ),
+        hovermode="closest"
+    )
+
+    # display the plotly figure
+    st.plotly_chart(fig3, use_container_width=True)
+
+with tab2:
     col1, col2 = st.columns([1,2])
     with col1:
         with st.expander("General Information", expanded=True):
@@ -218,212 +433,3 @@ with tab1:
     with col2:
         # Display the Plotly figure in Streamlit
         st.plotly_chart(fig, use_container_width=True)
-
-with tab2:
-    # Title and Tabs
-    with st.expander("About"):
-        st.write(
-            '''
-            This section of the app is dedicated to the design of an electric commercial flight.
-            The design is based on the Boeing 737-800 MAX, which is a short to medium range commercial aircraft.
-            The design is based on the following assumptions:
-            - The aircraft is powered by a futuristic electric turbofan engine
-            - The aircraft is powered by a battery (albeit a futuristic one)
-            '''
-        )
-
-    # Constants
-    gravitational_constant = 9.81  # m/s^2
-
-    # System Level Requirements
-    st.header("System Level Requirements")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        req1_speed = st.number_input("Requirement 1: Target Cruising Speed (km/h)", min_value=200, max_value=1000, value=840)
-    with col2:
-        req2_range = st.number_input("Requirement 2: Target Maximum Range (km)", min_value=100, max_value=8000, value=5765)
-    with col3:
-        req3_payload = st.number_input("Requirement 3: Target Payload (kg)", min_value=100, max_value=100000, value=20000)
-
-    # Subsystem Level Requirements - Motor Subsystem
-    st.header("eTurbine Subsystem")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        subreq1_motor_thrust = st.number_input("Sub-Requirement 1: Target eTurbofan thrust (kN)", min_value=10.0, max_value=350.0, value=147.58)
-    with col2:
-        subreq2_motor_mass = st.number_input("Sub-Requirement 2: Max Motor Mass (kg)", min_value=10, max_value=10000, value=2780)
-    with col3:
-        heat_dissipation_capacity = st.number_input('Heat Dissipation Capacity (KW/kg, Control Point)', min_value=0.1, max_value=20.0, value=10.0)
-
-    # Control Points (Input Widgets)
-    st.header("Control Points")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        num_engines = st.number_input('Number of Engines (Control Point)', min_value=1, max_value=8, value=2)
-        lift_to_drag_ratio = st.slider('Lift-to-Drag Ratio (Control Point)', min_value=5.0, max_value=25.0, value=17.0)
-    with col2:
-        battery_mass_kg = st.number_input('Battery Mass (kg, Control Point)', min_value=1000, max_value=50000, value=20000)
-        battery_specific_energy_Wh_kg = st.number_input('Battery Specific Energy (Wh/kg, Control Point)', min_value=100, max_value=500, value=290)
-        battery_multiplier = st.slider('Battery Energy density Multiplier (Control Point)', min_value=0.5, max_value=200.0, value=40.0)
-    with col3:
-        eta_i = st.slider('Inverter Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.98)
-        eta_m = st.slider('Motor Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.95, key='eta_m')
-        eta_p = st.slider('Propulsive Efficiency (Control Point)', min_value=0.5, max_value=1.0, value=0.7, key='eta_p')
-
-    st.markdown("---")
-
-    # Boeing 737-800 MAX Constants
-    b737_max_range = 5765  # km
-    b737_max_thrust = 120000  # N
-    b737_max_mass = 79015
-    b737_dry_mass = 41500  # kg
-    b737_fuel_mass = 26000  # kg
-    b737_max_engine_mass = 2780  # kg
-    jet_fuel_density = 0.804  # kg/L
-    jet_fuel_energy_density = 43.15  # MJ/kg
-    b737_turbine_power = b737_fuel_mass * jet_fuel_energy_density * req1_speed / b737_max_range  # kW
-
-    # Convert cruising speed to m/s
-    cruising_speed_m_s = (req1_speed * 1000) / 3600
-
-    # Calculate range using the modified Breguet Range Equation for electric aircraft
-    # Convert units
-    battery_specific_energy_J_kg = battery_specific_energy_Wh_kg * 3600 * battery_multiplier # Convert Wh/kg to J/kg
-
-    # Calculate heat management mass
-    # split thrust by number of engines
-    subreq1_motor_thrust = subreq1_motor_thrust / (num_engines)  # in N
-    motor_power = subreq1_motor_thrust * cruising_speed_m_s * 1000  # in W
-    motor_heat = (1 - eta_m) * subreq1_motor_thrust * req1_speed * (1000/3600) * 1000  # in W
-    heat_mgmt_mass = motor_heat / (heat_dissipation_capacity * 1000)  # in kg
-    total_motor_mass = subreq2_motor_mass + heat_mgmt_mass
-
-    # Update total eTurbofan mass based on heat management mass
-    total_mass_with_heat_mgmt = b737_max_engine_mass * num_engines + heat_mgmt_mass + battery_mass_kg + b737_dry_mass + req3_payload
-
-    # Calculate range using the modified Breguet Range Equation for electric aircraft
-    R_elec_m = (battery_specific_energy_J_kg / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
-    R_elec_km = R_elec_m / 1000  # Convert to km
-
-    # Compare with Boeing 737-800 MAX
-    percentage_difference_range = ((R_elec_km / b737_max_range) - 1) * 100  # percentage difference
-    percentage_difference_heat_mgmt_mass = ((heat_mgmt_mass / b737_max_engine_mass) - 1) * 100  # percentage difference
-
-    # Display main numbers as metrics
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Calculated e737 Range (km)", f"{R_elec_km:.2f}", f"{percentage_difference_range:.2f}% of 737-800 MAX")
-    col1.metric("Heat Management Mass (kg)", f"{heat_mgmt_mass:.2f}", f"{percentage_difference_heat_mgmt_mass:.2f}% of 737-800 MAX engine mass", delta_color="inverse")
-    col2.metric("Target eTurbine Thrust Required (kN)", f"{subreq1_motor_thrust:.2f}")
-    col2.metric("eTurbine Power Required (kW)", f"{motor_power / 1000:.2f}")
-    col2.metric("Motor Heat (kW)", f"{motor_heat / 1000:.2f}")
-    col3.metric("eTurbofan Mass (kg)", f"{total_motor_mass:.2f}", f"{(total_motor_mass / b737_max_engine_mass - 1) * 100:.2f}% of 737-800 MAX engine mass")
-    col3.metric("e737 Mass (kg)", f"{total_mass_with_heat_mgmt:.2f}", f"{(total_mass_with_heat_mgmt / b737_max_mass - 1) * 100:.2f}% of 737-800 MAX")
-
-    # make a plotly figure that shows how range changes with values for battery mass and battery specific energy
-    # generate a grid of values for battery mass and battery specific energy
-    battery_masses = np.linspace(1000, 50000, 100)
-    battery_specific_energies = np.linspace(100, 500, 100)
-    battery_masses_grid, battery_specific_energies_grid = np.meshgrid(battery_masses, battery_specific_energies)
-    # calculate range for each value in the grid
-    R_elec_m_grid = (battery_specific_energies_grid * 3600 * battery_multiplier / gravitational_constant) * lift_to_drag_ratio * (battery_masses_grid / total_mass_with_heat_mgmt) * eta_i * eta_m * eta_p
-    R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
-
-    # create a plotly figure with two subplots side by side
-    fig2 = make_subplots(rows=1, cols=1)
-
-    # add a contour plot for range vs battery mass to the first subplot
-    fig2.add_trace(go.Contour(x=battery_masses, y=battery_specific_energies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=1)
-
-    # add a scatter plot for the control point to both subplots
-    fig2.add_trace(go.Scatter(
-                                x=[battery_mass_kg],
-                                y=[battery_specific_energy_Wh_kg],
-                                name='Design',
-                                hovertext=f'Range: {R_elec_km:.2f} km',
-                                mode='markers',
-                                marker=dict(color='white',size=10)),
-                                row=1,
-                                col=1
-                                )
-
-    # update the layout
-    fig2.update_layout(
-        title="Range vs Battery Mass and Battery Specific Energy",
-        xaxis_title="Battery Mass (kg)",
-        yaxis_title="Battery Specific Energy (Wh/kg)",
-        height=500,
-        width=1000,
-        # make legend horizontal
-        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1),
-        # make hover value lable say Battery Specific Energy (x), Battery Mass (y), and Range (z)
-        hoverlabel=dict(
-            font_size=11,
-            font_family="Rockwell"
-        ),
-        hovermode="closest"
-    )
-
-    # display the plotly figure
-    st.plotly_chart(fig2, use_container_width=True)
-
-    # make a plotly contour plot that shows how the motor and propulsive efficiency affect range
-    # generate a grid of values for motor and propulsive efficiency
-    motor_efficiencies = np.linspace(0.5, 1.0, 100)
-    propulsive_efficiencies = np.linspace(0.5, 1.0, 100)
-    motor_efficiencies_grid, propulsive_efficiencies_grid = np.meshgrid(motor_efficiencies, propulsive_efficiencies)
-    # calculate range for each value in the grid
-    R_elec_m_grid = (battery_specific_energy_J_kg / gravitational_constant) * lift_to_drag_ratio * (battery_mass_kg / total_mass_with_heat_mgmt) * eta_i * motor_efficiencies_grid * propulsive_efficiencies_grid
-    R_elec_km_grid = R_elec_m_grid / 1000  # Convert to km
-
-    # create a plotly figure with two subplots side by side (one for range vs motor efficiency vs propulsive efficiency and one for range vs inverter efficiency vs propulsive efficienc)
-    fig3 = make_subplots(rows=1, cols=2, subplot_titles=("Motor Efficiency vs Propulsive Efficiency", "Inverter Efficiency vs Propulsive Efficiency"))
-
-    # add a contour plot for range vs motor and propulsive efficiency to the first subplot
-    fig3.add_trace(go.Contour(x=motor_efficiencies, y=propulsive_efficiencies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=1)
-
-    # add a scatter plot for the control point to both subplots
-    fig3.add_trace(go.Scatter(
-                                x=[eta_m],
-                                y=[eta_p],
-                                name='Design',
-                                hovertext=f'Range: {R_elec_km:.2f} km',
-                                mode='markers',
-                                marker=dict(color='white',size=10)),
-                                row=1,
-                                col=1
-                                )
-    
-    # add a contour plot for range vs inverter and propulsive efficiency to the second subplot
-    fig3.add_trace(go.Contour(x=motor_efficiencies, y=propulsive_efficiencies, z=R_elec_km_grid, colorscale='Plasma', showscale=False), row=1, col=2)
-
-    # add a scatter plot for the control point to both subplots
-    fig3.add_trace(go.Scatter(
-                                x=[eta_i],
-                                y=[eta_p],
-                                name='Design',
-                                hovertext=f'Range: {R_elec_km:.2f} km',
-                                mode='markers',
-                                marker=dict(color='white',size=10)),
-                                row=1,
-                                col=2
-                                )
-    
-    # update the layout
-    fig3.update_layout(
-        title="Range vs Motor and Propulsive Efficiency",
-        xaxis_title="Motor Efficiency",
-        yaxis_title="Propulsive Efficiency",
-        height=500,
-        width=1000,
-        # make legend horizontal
-        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1),
-        # make hover value lable say Motor Efficiency (x), Propulsive Efficiency (y), and Range (z)
-        hoverlabel=dict(
-            font_size=11,
-            font_family="Rockwell"
-        ),
-        hovermode="closest"
-    )
-
-    # display the plotly figure
-    st.plotly_chart(fig3, use_container_width=True)
