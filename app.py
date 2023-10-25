@@ -190,7 +190,7 @@ with tab1:
     fig2.add_annotation(
         x= battery_mass_end/1.5,
         y=battery_specific_energy_Wh_kg,
-        text=f"Current Battery Specific Energy: {battery_specific_energy_Wh_kg:.2f} Wh/kg",
+        text=f"Current MAX Battery Specific Energy: {battery_specific_energy_Wh_kg:.2f} Wh/kg",
         showarrow=False,
         font=dict(size=14, color="red"),
     )
